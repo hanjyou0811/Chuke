@@ -74,7 +74,7 @@ impl Cartridge {
         let has_battery = matches!(header.cartridge_type[0], 0x03 | 0x06 | 0x09 | 0x0F | 0x10 | 0x13);
 
         println!(
-            "Cartridge info {{ title: {}, type: {}, is_cgb {}, rom_size: {} B, sram_size: {} B, }}", 
+            "Cartridge info {{ title: {}, type: {}, is_cgb: {}, rom_size: {} B, sram_size: {} B, }}", 
             title,
             match mbc {
                 Mbc::NoMbc { .. } => "No Mbc",
@@ -96,8 +96,8 @@ impl Cartridge {
             rom,
             sram: vec![0; sram_size].into(),
             mbc,
-            // is_cgb: matches!(header.cgb_flag[0], 0x80 | 0xC0),
-            is_cgb: true,
+            is_cgb: matches!(header.cgb_flag[0], 0x80 | 0xC0),
+            // is_cgb: true,
             save: SaveManager::new(save_path, has_battery),
             header,
         };
