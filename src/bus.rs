@@ -15,6 +15,7 @@ use std::io;
 pub struct Bus {
     bootrom: Bootrom,
     key0: u8,
+    vram_dma: crate::vram_dma::VramDma,
     wram: WRam,
     hram: HRam,
     cartridge: Cartridge,
@@ -29,6 +30,7 @@ impl Bus {
         Self {
             bootrom,
             key0: 0,
+            vram_dma: Default::default(),
             wram: WRam::new(),
             hram: HRam::new(),
             cartridge,
@@ -62,6 +64,8 @@ impl Bus {
             0xFF04..=0xFF07 => self.timer.read(addr),
             0xFF10..=0xFF26 | 0xFF30..=0xFF3F => self.apu.read(addr),
             0xFF40..=0xFF4B | 0xFF4F | 0xFF68..=0xFF6C => self.ppu.read(addr),
+            0xFF51..=0xFF54 => 0xFF,
+            0xFF55 => self.vram_dma.read(),
             0xFF0F          => interrupts.read(addr),
             0xFFFF          => interrupts.read(addr),
             0xC000..=0xFDFF | 0xFF70 => self.wram.read(addr),
@@ -82,6 +86,7 @@ impl Bus {
             0xFF04..=0xFF07 => self.timer.write(addr, val),
             0xFF10..=0xFF26 | 0xFF30..=0xFF3F => self.apu.write(addr, val),
             0xFF40..=0xFF4B | 0xFF4F | 0xFF68..=0xFF6C  => self.ppu.write(addr, val),
+            0xFF51..=0xFF55 => self.vram_dma.write(addr, val),
             0xFF0F          => interrupts.write(addr, val),
             0xFFFF           => interrupts.write(addr, val),
             0xC000..=0xFDFF | 0xFF70 => self.wram.write(addr, val),
@@ -95,6 +100,21 @@ impl Bus {
             0xFF80..=0xFFFE => self.hram.write(addr, val),
             _               => (),
         }
+    }
+
+    /// One normal-speed M-cycle: copy two bytes and report whether CPU must stall.
+    pub fn step_vram_dma(&mut self, interrupts: &Interrupts) -> bool {
+        let Some((src, dst)) = self.vram_dma.next_pair() else { return false; };
+        for offset in 0..2 {
+            let address = src.wrapping_add(offset);
+            let value = match address {
+                0x0000..=0x7FFF | 0xA000..=0xDFFF => self.read(interrupts, address),
+                _ => 0xFF,
+            };
+            self.ppu.dma_write_vram(dst + offset, value);
+        }
+        self.vram_dma.advance_pair();
+        true
     }
 
     pub fn save_cartridge_if_ready(&mut self, current_frame: u64) -> io::Result<()> {
@@ -166,5 +186,18 @@ mod tests {
         assert!(bus.cgb_enabled());
         bus.write(&mut interrupts, 0xFF4C, 4);
         assert!(bus.cgb_enabled());
+        bus.write(&mut interrupts, 0xFF4F, 1);
+        for i in 0..16 { bus.write(&mut interrupts, 0xC000 + i, i as u8); }
+        bus.write(&mut interrupts, 0xFF51, 0xC0);
+        bus.write(&mut interrupts, 0xFF52, 0);
+        bus.write(&mut interrupts, 0xFF53, 0);
+        bus.write(&mut interrupts, 0xFF54, 0);
+        bus.write(&mut interrupts, 0xFF55, 0);
+        for _ in 0..8 { assert!(bus.step_vram_dma(&interrupts)); }
+        assert!(!bus.step_vram_dma(&interrupts));
+        assert_eq!(bus.read(&interrupts, 0xFF55), 0xFF);
+        for i in 0..16 { assert_eq!(bus.read(&interrupts, 0x8000 + i), i as u8); }
+        bus.write(&mut interrupts, 0xFF4F, 0);
+        assert_eq!(bus.read(&interrupts, 0x8001), 0);
     }
 }

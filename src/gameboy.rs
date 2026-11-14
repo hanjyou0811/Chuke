@@ -84,7 +84,9 @@ impl GameBoy {
                         }
                     }
                 }
-                self.cpu.emulate_cycle(&mut self.bus);
+                if !self.bus.step_vram_dma(&self.cpu.interrupts) {
+                    self.cpu.emulate_cycle(&mut self.bus);
+                }
                 self.bus.timer.emulate_cycle(&mut self.cpu.interrupts);
                 self.bus.apu.emulate_cycle();
                 if let Some(addr) = self.bus.ppu.oam_dma {
