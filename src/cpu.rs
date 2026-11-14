@@ -64,6 +64,9 @@ impl Cpu {
             interrupts: Interrupts::default(),
         }
     } 
+    pub fn accumulator(&self) -> u8 { self.regs.a }
+    pub fn program_counter(&self) -> u16 { self.regs.pc }
+
     pub fn is_halted(&self) -> bool {
         !self.ctx.cb && !self.ctx.int && self.ctx.opcode == 0x76 && self.interrupts.get_interrupt() == 0
     }

@@ -7,7 +7,7 @@ use sdl2::{
 use crate::apu::{SAMPLES, SAMPLE_RATE};
 
 pub struct Audio {
-    audio_queue: AudioQueue<f32>,
+    audio_queue: Option<AudioQueue<f32>>,
 }
 impl Audio {
     pub fn new(sdl: &Sdl) -> Audio {
@@ -22,13 +22,16 @@ impl Audio {
         }).expect("failed to create audio queue");
         audio_queue.resume();
         Self {
-            audio_queue
+            audio_queue: Some(audio_queue)
         }
     }
+    pub fn silent() -> Self { Self { audio_queue: None } }
+
     pub fn queue(&mut self, buffer: &[f32]) {
-        while self.audio_queue.size() > 8192 {
+        let Some(audio_queue) = &self.audio_queue else { return; };
+        while audio_queue.size() > 8192 {
             std::thread::sleep(time::Duration::from_millis(1));
         }
-        self.audio_queue.queue_audio(buffer).unwrap();
+        audio_queue.queue_audio(buffer).unwrap();
     }
 }

@@ -157,7 +157,6 @@ mod tests {
 
     #[test]
     fn boot_overlay_and_mode_lock_follow_hardware_not_cartridge_flag() {
-        let sdl = sdl2::init().unwrap();
         let make_bus = |bootrom, cgb_flag| {
             let mut rom = vec![0; 0x8000];
             rom[0x100] = 0x55;
@@ -165,7 +164,7 @@ mod tests {
             rom[0x143] = cgb_flag;
             rom[0x14D] = rom[0x134..=0x14C].iter().fold(0u8, |sum, byte| sum.wrapping_sub(*byte).wrapping_sub(1));
             let cartridge = Cartridge::new(rom.into_boxed_slice(), std::env::temp_dir().join("chuke-boot-test.sav"));
-            Bus::new(bootrom, cartridge, Audio::new(&sdl))
+            Bus::new(bootrom, cartridge, Audio::silent())
         };
         let mut interrupts = Interrupts::default();
         // A CGB starts with color registers available even for a DMG cartridge.
