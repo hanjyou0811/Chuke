@@ -142,6 +142,13 @@ mod tests {
         bus.write(&mut interrupts, 0xFF50, 0);
         assert_eq!(bus.read(&interrupts, 0xFF4F), 0xFF);
         assert_eq!(bus.read(&interrupts, 0x200), 0x66);
+        for addr in [0xFF68, 0xFF6A, 0xFF70] {
+            bus.write(&mut interrupts, addr, 1);
+            assert_eq!(bus.read(&interrupts, addr), 0xFF);
+        }
+        bus.write(&mut interrupts, 0xD000, 0x77);
+        bus.write(&mut interrupts, 0xFF70, 2);
+        assert_eq!(bus.read(&interrupts, 0xD000), 0x77);
         drop(bus);
 
         let mut bus = make_bus(Bootrom::new(), 0x80);

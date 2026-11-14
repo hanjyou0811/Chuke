@@ -199,14 +199,14 @@ impl Ppu {
             0xFF4A => self.wy = val,
             0xFF4B => self.wx = val,
             0xFF4F => self.vram_bank = (val & 0x01) as usize,
-            0xFF68 => self.bgpi = val,
+            0xFF68 => self.bgpi = val & 0xBF,
             0xFF69 => if self.mode != Drawing {
                 self.bgpd[(self.bgpi & 0x3F) as usize] = val;
                 if self.bgpi & 0x80 != 0 {
                     self.bgpi = (self.bgpi & 0x80) | ((self.bgpi.wrapping_add(1))) & 0x3F;
                 }
             },
-            0xFF6A => self.obpi = val,
+            0xFF6A => self.obpi = val & 0xBF,
             0xFF6B => if self.mode != Drawing {
                 self.obpd[(self.obpi & 0x3F) as usize] = val;
                 if self.obpi & 0x80 != 0 {
@@ -443,5 +443,27 @@ impl Ppu {
 
     pub fn set_mode(&mut self, is_cgb: bool) {
         self.is_cgb = is_cgb;
+    }
+}
+
+#[cfg(test)]
+mod cgb_memory_tests {
+    use super::*;
+
+    #[test]
+    fn vram_banks_are_independent_and_palette_index_masks_unused_bit() {
+        let mut ppu = Ppu::new(true);
+        ppu.write(0x8000, 0x12);
+        ppu.write(0xFF4F, 0xFF);
+        assert_eq!(ppu.read(0x8000), 0);
+        ppu.write(0x8000, 0x34);
+        ppu.write(0xFF4F, 0);
+        assert_eq!(ppu.read(0x8000), 0x12);
+        ppu.write(0xFF4F, 1);
+        assert_eq!(ppu.read(0x8000), 0x34);
+        ppu.write(0xFF68, 0xFF);
+        assert_eq!(ppu.read(0xFF68), 0xBF);
+        ppu.write(0xFF6A, 0xFF);
+        assert_eq!(ppu.read(0xFF6A), 0xBF);
     }
 }
