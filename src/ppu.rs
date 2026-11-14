@@ -1,5 +1,4 @@
 use crate::{cpu::interrupts::{self, Interrupts}, ppu::Mode::Drawing};
-use std::iter;
 
 // lcdcレジスタ
 const PPU_ENABLE: u8 = 1 << 7;
@@ -65,7 +64,7 @@ pub struct Ppu {
     vram: Box<[[u8; 0x2000]; 2]>,
     vram_bank: usize,
     oam: Box<[u8; 0xA0]>,
-    buffer: Box<[u8; LCD_WIDTH * LCD_HEIGHT]>,
+    buffer: Box<[[u8; 3]; LCD_WIDTH * LCD_HEIGHT]>,
 
     cycles: usize,
 
@@ -74,7 +73,8 @@ pub struct Ppu {
     pub oam_dma: Option<u16>,
 
     // for CGB
-    is_cgb: bool, 
+    is_cgb: bool,
+    cgb_hardware: bool, 
     // ff68 bg palette index
     // ff69 bg palette data
     bgpi: u8,
@@ -113,12 +113,13 @@ impl Ppu {
             vram: Box::new([[0; 0x2000]; 2]),
             vram_bank: 0,
             oam: Box::new([0; 0xA0]),
-            buffer: Box::new([0; LCD_WIDTH * LCD_HEIGHT]),
+            buffer: Box::new([[0; 3]; LCD_WIDTH * LCD_HEIGHT]),
             cycles: 20,
             wly: 0,
             oam_dma: None,
 
             is_cgb,
+            cgb_hardware: is_cgb,
             bgpi: 0,
             bgpd: Box::new([0; 0x40]),
             obpi: 0, 
@@ -217,18 +218,18 @@ impl Ppu {
         }
     }
 
-    fn get_pixel_from_tile(&self, tile_idx: usize, row: u8, col: u8) -> u8 {
+    fn get_pixel_from_tile(&self, bank: usize, tile_idx: usize, row: u8, col: u8) -> u8 {
         let r = (row * 2) as usize;
         let c = (7 - col) as usize;
         let tile_addr = tile_idx << 4;
-        let low = self.vram[self.vram_bank][(tile_addr | r) & 0x1FFF];
-        let high = self.vram[self.vram_bank][(tile_addr | (r + 1)) & 0x1FFF];
+        let low = self.vram[bank][(tile_addr | r) & 0x1FFF];
+        let high = self.vram[bank][(tile_addr | (r + 1)) & 0x1FFF];
         (((high >> c) & 1) << 1) | ((low >> c) & 1)
     }
 
     fn get_tile_idx_from_tile_map(&self, tile_map: bool, row: u8, col: u8) -> usize {
         let start_addr: usize = 0x1800 | ((tile_map as usize) << 10);
-        let ret = self.vram[self.vram_bank][start_addr | (((row as usize) << 5) + col as usize)];
+        let ret = self.vram[0][start_addr | (((row as usize) << 5) + col as usize)];
         if self.lcdc & TILE_DATA_ADDRESSING_MODE > 0 {
             ret as usize
         } else {
@@ -236,59 +237,72 @@ impl Ppu {
         }
     }
 
+    fn palette_color(memory: &[u8], palette: u8, color: u8) -> [u8; 3] {
+        let index = palette as usize * 8 + color as usize * 2;
+        let rgb = u16::from_le_bytes([memory[index], memory[index + 1]]);
+        [0, 5, 10].map(|shift| {
+            let component = ((rgb >> shift) & 31) as u8;
+            (component << 3) | (component >> 2)
+        })
+    }
+
+    fn monochrome_color(palette: u8, color: u8) -> [u8; 3] {
+        [0xFF - ((palette >> (color * 2)) & 3) * 0x55; 3]
+    }
+
+    fn background_pixel(&self, map: bool, x: u8, y: u8) -> (u8, u8) {
+        let map_addr = 0x1800 | ((map as usize) << 10)
+            | ((y as usize >> 3) * 32 + (x as usize >> 3));
+        let attr = if self.is_cgb { self.vram[1][map_addr] } else { 0 };
+        let tile = self.get_tile_idx_from_tile_map(map, y >> 3, x >> 3);
+        let row = (y & 7) ^ if attr & Y_FLIP != 0 { 7 } else { 0 };
+        let col = (x & 7) ^ if attr & X_FLIP != 0 { 7 } else { 0 };
+        let pixel = self.get_pixel_from_tile(((attr >> 3) & 1) as usize, tile, row, col);
+        (pixel, attr)
+    }
+
+    fn background_color(&self, pixel: u8, attr: u8) -> [u8; 3] {
+        if self.is_cgb {
+            Self::palette_color(self.bgpd.as_ref(), attr & 7, pixel)
+        } else if self.cgb_hardware {
+            Self::palette_color(self.bgpd.as_ref(), 0, (self.bgp >> (pixel * 2)) & 3)
+        } else {
+            Self::monochrome_color(self.bgp, pixel)
+        }
+    }
+
     fn render_bg(&mut self, bg_prio: &mut [bool; LCD_WIDTH]) {
-        if self.lcdc & BG_WINDOW_ENABLE == 0 {
-            return ;
+        if !self.is_cgb && self.lcdc & BG_WINDOW_ENABLE == 0 {
+            for i in 0..LCD_WIDTH {
+                self.buffer[self.ly as usize * LCD_WIDTH + i] = [255; 3];
+                bg_prio[i] = false;
+            }
+            return;
         }
         let y = self.ly.wrapping_add(self.scy);
         for i in 0..LCD_WIDTH {
             let x = (i as u8).wrapping_add(self.scx);
-
-            let tile_idx = self.get_tile_idx_from_tile_map(
-                self.lcdc & BG_TILE_MAP > 0,
-                y >> 3, x >> 3
-            );
-            let pixel = self.get_pixel_from_tile(tile_idx, y & 7, x & 7);
-
-            self.buffer[(self.ly as usize * LCD_WIDTH) + i] = match (
-                self.bgp >> (pixel << 1)) & 0b11 {
-                    0b00 => 0xFF,
-                    0b01 => 0xAA,
-                    0b10 => 0x55,
-                    _    => 0x00,
-            };
+            let (pixel, attr) = self.background_pixel(self.lcdc & BG_TILE_MAP != 0, x, y);
+            self.buffer[self.ly as usize * LCD_WIDTH + i] = self.background_color(pixel, attr);
             bg_prio[i] = pixel != 0;
         }
     }
 
     fn render_window(&mut self, bg_prio: &mut [bool; LCD_WIDTH]) {
-        if self.lcdc & BG_WINDOW_ENABLE == 0 || self.lcdc & WINDOW_ENABLE == 0 || self.wy > self.ly {
-            return ;
+        if (!self.is_cgb && self.lcdc & BG_WINDOW_ENABLE == 0)
+            || self.lcdc & WINDOW_ENABLE == 0 || self.wy > self.ly {
+            return;
         }
-        let mut wly_add = 0;
-        let y = self.wly;
+        let mut visible = false;
         for i in 0..LCD_WIDTH {
-            let (x, overflow) = (i as u8).overflowing_sub(self.wx.wrapping_sub(7));
-            if overflow {
-                continue;
-            }
-            wly_add = 1;
-
-            let tile_idx = self.get_tile_idx_from_tile_map(
-                self.lcdc & WINDOW_TILE_MAP > 0,
-                y >> 3, x >>3
-            );
-            let pixel = self.get_pixel_from_tile(tile_idx, y & 7, x & 7);
-
-            self.buffer[(self.ly as usize * LCD_WIDTH) + i] = match (self.bgp >> (pixel << 1)) & 0b11 {
-                0b00 => 0xFF,
-                0b01 => 0xAA,
-                0b10 => 0x55,
-                _    => 0x00,
-            };
+            let x = i as i16 + 7 - self.wx as i16;
+            if x < 0 { continue; }
+            visible = true;
+            let (pixel, attr) = self.background_pixel(self.lcdc & WINDOW_TILE_MAP != 0, x as u8, self.wly);
+            self.buffer[self.ly as usize * LCD_WIDTH + i] = self.background_color(pixel, attr);
             bg_prio[i] = pixel != 0;
         }
-        self.wly += wly_add;
+        self.wly += visible as u8;
     }
 
     fn render_sprite(&mut self, bg_prio: &[bool; LCD_WIDTH]) {
@@ -333,17 +347,11 @@ impl Ppu {
                 } else {
                     col
                 };
-                let pixel = self.get_pixel_from_tile(tile_idx, row, col_flipped);
+                let pixel = self.get_pixel_from_tile(0, tile_idx, row, col_flipped);
                 let i = sprite.x.wrapping_add(col) as usize;
                 if i < LCD_WIDTH && pixel > 0 {
                     if sprite.flags & OBJ2BG_PRIORIY == 0 || bg_prio[i] == false {
-                        self.buffer[(self.ly as usize * LCD_WIDTH) + i] = match (
-                            palette >> (pixel << 1)) & 0b11 {
-                                0b00 => 0xFF,
-                                0b01 => 0xAA,
-                                0b10 => 0x55,
-                                _    => 0x00,
-                        };
+                        self.buffer[(self.ly as usize * LCD_WIDTH) + i] = Self::monochrome_color(palette, pixel);
                     }
                 }
             }
@@ -438,7 +446,7 @@ impl Ppu {
     }
 
     pub fn pixel_buffer(&self) -> Box<[u8]> {
-        self.buffer.iter().flat_map(|p| iter::repeat(*p).take(3)).collect()
+        self.buffer.iter().flatten().copied().collect()
     }
 
     pub fn set_mode(&mut self, is_cgb: bool) {
@@ -465,5 +473,36 @@ mod cgb_memory_tests {
         assert_eq!(ppu.read(0xFF68), 0xBF);
         ppu.write(0xFF6A, 0xFF);
         assert_eq!(ppu.read(0xFF6A), 0xBF);
+    }
+}
+
+#[cfg(test)]
+mod cgb_render_tests {
+    use super::*;
+
+    #[test]
+    fn background_uses_attribute_bank_palette_and_flip_independent_of_vbk() {
+        let mut ppu = Ppu::new(true);
+        ppu.lcdc = TILE_DATA_ADDRESSING_MODE;
+        ppu.vram[0][0x1800] = 1;
+        ppu.vram[1][0x1800] = 0x68 | 3; // bank1, X/Y flip, palette3
+        ppu.vram[1][16 + 14] = 1; // flipped top-left pixel has color 1
+        ppu.bgpd[3 * 8 + 2] = 0x1F;
+        let mut priority = [false; LCD_WIDTH];
+        ppu.render_bg(&mut priority);
+        assert_eq!(ppu.pixel_buffer()[..3], [255, 0, 0]);
+        ppu.vram_bank = 1;
+        ppu.render_bg(&mut priority);
+        assert_eq!(ppu.pixel_buffer()[..3], [255, 0, 0]);
+    }
+
+    #[test]
+    fn dmg_background_keeps_grayscale_output() {
+        let mut ppu = Ppu::new(false);
+        ppu.lcdc = BG_WINDOW_ENABLE | TILE_DATA_ADDRESSING_MODE;
+        ppu.bgp = 0xE4;
+        ppu.vram[0][0] = 0x80;
+        ppu.render_bg(&mut [false; LCD_WIDTH]);
+        assert_eq!(ppu.pixel_buffer()[..3], [0xAA; 3]);
     }
 }
