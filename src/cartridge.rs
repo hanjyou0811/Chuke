@@ -71,7 +71,7 @@ impl Cartridge {
             Mbc::Mbc2 { .. } => 512,
             _ => header.sram_size(),
         };
-        let has_battery = matches!(header.cartridge_type[0], 0x03 | 0x06 | 0x09 | 0x0F | 0x10 | 0x13);
+        let has_battery = matches!(header.cartridge_type[0], 0x03 | 0x06 | 0x09 | 0x0F | 0x10 | 0x13 | 0x1B | 0x1E);
 
         println!(
             "Cartridge info {{ title: {}, type: {}, is_cgb: {}, rom_size: {} B, sram_size: {} B, }}", 
@@ -81,6 +81,7 @@ impl Cartridge {
                 Mbc::Mbc1 { .. }  => "Mbc1",
                 Mbc::Mbc2 { .. } => "Mbc2",
                 Mbc::Mbc3 { .. } => "Mbc3",
+                Mbc::Mbc5 { .. } => "Mbc5",
             },
             matches!(header.cgb_flag[0], 0x80 | 0xC0),
             rom_size,
@@ -113,7 +114,7 @@ impl Cartridge {
             0xA000..=0xBFFF => match self.mbc {
                 Mbc::NoMbc if !self.sram.is_empty() => self.sram[addr as usize & (self.sram.len() - 1)],
                 Mbc::NoMbc => 0xFF,
-                Mbc::Mbc1  { ref sram_enable, .. } => if *sram_enable && !self.sram.is_empty() {
+                Mbc::Mbc1 { ref sram_enable, .. } | Mbc::Mbc5 { ref sram_enable, .. } => if *sram_enable && !self.sram.is_empty() {
                     self.sram[self.mbc.get_addr(addr) & (self.sram.len() - 1)]
                 } else {
                     0xFF
@@ -144,7 +145,7 @@ impl Cartridge {
                 let index = match self.mbc {
                 Mbc::NoMbc if !self.sram.is_empty() => Some(addr as usize & (self.sram.len() - 1)),
                 Mbc::NoMbc => None,
-                Mbc::Mbc1  { ref sram_enable, .. } => if *sram_enable && !self.sram.is_empty() {
+                Mbc::Mbc1 { ref sram_enable, .. } | Mbc::Mbc5 { ref sram_enable, .. } => if *sram_enable && !self.sram.is_empty() {
                     Some(self.mbc.get_addr(addr) & (self.sram.len() - 1))
                 } else { None },
                 Mbc::Mbc2  { ref sram_enable, .. } => if *sram_enable {
@@ -178,5 +179,37 @@ impl Cartridge {
 
     pub fn flush_save(&mut self, current_frame: u64) -> io::Result<()> {
         self.save.save(&self.sram, current_frame)
+    }
+}
+#[cfg(test)]
+mod mbc5_persistence_tests {
+    use super::*;
+
+    #[test]
+    fn mbc5_ram_banks_enable_and_battery_roundtrip() {
+        let mut rom = vec![0; 0x8000];
+        rom[0x147] = 0x1B;
+        rom[0x149] = 4;
+        rom[0x14D] = rom[0x134..=0x14C].iter().fold(0u8, |sum, byte| sum.wrapping_sub(*byte).wrapping_sub(1));
+        let path = std::env::temp_dir().join(format!("chuke-mbc5-{}-{}.sav", std::process::id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        let mut cart = Cartridge::new(rom.clone().into_boxed_slice(), path.clone());
+        assert_eq!(cart.read(0xA000), 0xFF);
+        cart.write(0, 0x0A);
+        for bank in 0..16 {
+            cart.write(0x4000, bank);
+            cart.write(0xA123, bank + 1);
+        }
+        cart.write(0, 0);
+        cart.write(0xA123, 99);
+        assert_eq!(cart.read(0xA123), 0xFF);
+        cart.flush_save(1).unwrap();
+        drop(cart);
+        let mut cart = Cartridge::new(rom.into_boxed_slice(), path.clone());
+        cart.write(0, 0x0A);
+        for bank in 0..16 {
+            cart.write(0x4000, bank);
+            assert_eq!(cart.read(0xA123), bank + 1);
+        }
+        std::fs::remove_file(path).unwrap();
     }
 }
