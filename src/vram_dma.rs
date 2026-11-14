@@ -13,9 +13,13 @@ pub struct VramDma {
 
 impl VramDma {
     pub fn read(&self) -> u8 {
-        if self.running { (self.remaining - 1) as u8 }
-        else if self.cancelled { 0x80 | (self.remaining - 1) as u8 }
-        else { 0xFF }
+        if self.running {
+            (self.remaining - 1) as u8
+        } else if self.cancelled {
+            0x80 | (self.remaining - 1) as u8
+        } else {
+            0xFF
+        }
     }
 
     pub fn write(&mut self, addr: u16, val: u8) {
@@ -42,19 +46,28 @@ impl VramDma {
     }
 
     pub fn begin_hblank(&mut self) {
-        if self.running && self.hblank { self.block_active = true; }
+        if self.running && self.hblank {
+            self.block_active = true;
+        }
     }
 
-    pub fn is_hblank(&self) -> bool { self.hblank }
+    pub fn is_hblank(&self) -> bool {
+        self.hblank
+    }
 
-    pub fn active(&self) -> bool { self.running }
+    pub fn active(&self) -> bool {
+        self.running
+    }
 
     pub fn next_pair(&self) -> Option<(u16, u16)> {
-        (self.running && (!self.hblank || self.block_active)).then(|| (self.src.wrapping_add(self.offset), self.dst + self.offset))
+        (self.running && (!self.hblank || self.block_active))
+            .then(|| (self.src.wrapping_add(self.offset), self.dst + self.offset))
     }
 
     pub fn advance_pair(&mut self) {
-        if !self.running { return; }
+        if !self.running {
+            return;
+        }
         self.offset += 2;
         if self.offset == 16 {
             self.block_active = false;
@@ -91,7 +104,9 @@ mod tests {
         dma.write(0xFF55, 0x80);
         assert_eq!(dma.read(), 0);
         dma.begin_hblank();
-        for _ in 0..8 { dma.advance_pair(); }
+        for _ in 0..8 {
+            dma.advance_pair();
+        }
         assert_eq!(dma.read(), 0xFF);
     }
 
@@ -122,7 +137,9 @@ mod tests {
         dma.write(0xFF53, 0x1F);
         dma.write(0xFF54, 0xF0);
         dma.write(0xFF55, 0x7F);
-        for _ in 0..8 { dma.advance_pair(); }
+        for _ in 0..8 {
+            dma.advance_pair();
+        }
         assert!(!dma.active());
         assert!(dma.next_pair().is_none());
     }
