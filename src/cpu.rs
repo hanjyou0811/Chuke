@@ -62,6 +62,10 @@ impl Cpu {
             interrupts: Interrupts::default(),
         }
     } 
+    pub fn is_halted(&self) -> bool {
+        self.ctx.opcode == 0x76 && self.interrupts.get_interrupt() == 0
+    }
+
     pub fn emulate_cycle(&mut self, bus: &mut Bus) {
         if self.ctx.int {
             self.call_isr(bus); // 割り込み処理

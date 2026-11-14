@@ -84,7 +84,9 @@ impl GameBoy {
                         }
                     }
                 }
-                if !self.bus.step_vram_dma(&self.cpu.interrupts) {
+                let dma_stalls = !self.bus.hdma_waits_for_cpu(self.cpu.is_halted())
+                    && self.bus.step_vram_dma(&self.cpu.interrupts);
+                if !dma_stalls {
                     self.cpu.emulate_cycle(&mut self.bus);
                 }
                 self.bus.timer.emulate_cycle(&mut self.cpu.interrupts);

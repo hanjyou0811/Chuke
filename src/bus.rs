@@ -102,8 +102,13 @@ impl Bus {
         }
     }
 
+    pub fn hdma_waits_for_cpu(&self, halted: bool) -> bool {
+        halted && self.vram_dma.is_hblank()
+    }
+
     /// One normal-speed M-cycle: copy two bytes and report whether CPU must stall.
     pub fn step_vram_dma(&mut self, interrupts: &Interrupts) -> bool {
+        if self.ppu.hblank_started() { self.vram_dma.begin_hblank(); }
         let Some((src, dst)) = self.vram_dma.next_pair() else { return false; };
         for offset in 0..2 {
             let address = src.wrapping_add(offset);

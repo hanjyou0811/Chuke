@@ -381,6 +381,11 @@ impl Ppu {
         }
     }
 
+    pub fn hblank_started(&self) -> bool {
+        self.lcdc & PPU_ENABLE != 0 && self.mode == Mode::HBlank
+            && self.ly < 144 && self.cycles == 51
+    }
+
     pub fn dma_write_vram(&mut self, offset: u16, value: u8) {
         self.vram[self.vram_bank][offset as usize] = value;
     }
