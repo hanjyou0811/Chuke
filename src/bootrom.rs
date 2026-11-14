@@ -1,9 +1,10 @@
 pub struct Bootrom {
     rom: Box<[u8]>,
     active: bool,
+    is_cgb: bool,
 }
 impl Bootrom {
-    pub fn new(is_cgb: bool) -> Self {
+    pub fn new() -> Self {
         let rom = 
             Box::new([
                 0x31, 0xFE, 0xFF, 0x21, 0x00, 0x80, 0x3E, 0x00,
@@ -42,7 +43,34 @@ impl Bootrom {
         Self {
             rom,
             active: true,
+            is_cgb: false,
         }
+    }
+
+    /// Accept a padded 0x900-byte dump or a packed 0x800-byte CGB dump.
+    pub fn from_cgb_bytes(rom: Box<[u8]>) -> std::io::Result<Self> {
+        let rom = match rom.len() {
+            0x900 => rom,
+            0x800 => {
+                let mut padded = vec![0; 0x900].into_boxed_slice();
+                padded[..0x100].copy_from_slice(&rom[..0x100]);
+                padded[0x200..].copy_from_slice(&rom[0x100..]);
+                padded
+            }
+            _ => return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "CGB boot ROM must contain 0x800 or 0x900 bytes",
+            )),
+        };
+        Ok(Self { rom, active: true, is_cgb: true })
+    }
+
+    pub fn is_cgb(&self) -> bool {
+        self.is_cgb
+    }
+
+    pub fn maps(&self, addr: u16) -> bool {
+        self.active && (addr <= 0xFF || (self.is_cgb && (0x200..=0x8FF).contains(&addr)))
     }
 
     pub fn read(&self, addr: u16) -> u8 {
@@ -57,4 +85,52 @@ impl Bootrom {
     }
 
 
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dmg_does_not_overlay_cartridge_at_0200() {
+        let rom = Bootrom::new();
+        assert!(rom.maps(0x00FF));
+        assert!(!rom.maps(0x0100));
+        assert!(!rom.maps(0x0200));
+    }
+
+    #[test]
+    fn cgb_mapping_preserves_header_gap_and_unmaps_permanently() {
+        let mut data = vec![0; 0x900];
+        data[0x200] = 0x42;
+        data[0x8FF] = 0x73;
+        let mut rom = Bootrom::from_cgb_bytes(data.into_boxed_slice()).unwrap();
+        assert!(rom.is_cgb());
+        assert!(rom.maps(0));
+        assert!(rom.maps(0xFF));
+        assert!(!rom.maps(0x100));
+        assert!(!rom.maps(0x1FF));
+        assert_eq!(rom.read(0x200), 0x42);
+        assert!(rom.maps(0x8FF));
+        assert_eq!(rom.read(0x8FF), 0x73);
+        assert!(!rom.maps(0x900));
+        rom.write(0xFF50, 0);
+        assert!(rom.maps(0));
+        rom.write(0xFF50, 0x11);
+        rom.write(0xFF50, 0);
+        assert!(!rom.maps(0));
+        assert!(!rom.maps(0x200));
+    }
+
+    #[test]
+    fn packed_cgb_dump_is_normalized_and_bad_sizes_are_rejected() {
+        let mut data = vec![0; 0x800];
+        data[0x100] = 0x42;
+        data[0x7FF] = 0x73;
+        let rom = Bootrom::from_cgb_bytes(data.into_boxed_slice()).unwrap();
+        assert_eq!(rom.read(0x200), 0x42);
+        assert_eq!(rom.read(0x8FF), 0x73);
+        for size in [0, 0x100, 0x7FF, 0x801, 0x901] {
+            assert!(Bootrom::from_cgb_bytes(vec![0; size].into_boxed_slice()).is_err());
+        }
+    }
 }
