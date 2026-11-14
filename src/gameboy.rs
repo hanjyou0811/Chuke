@@ -84,16 +84,21 @@ impl GameBoy {
                         }
                     }
                 }
-                let dma_stalls = !self.bus.hdma_waits_for_cpu(self.cpu.is_halted())
-                    && self.bus.step_vram_dma(&self.cpu.interrupts);
-                if !dma_stalls {
-                    self.cpu.emulate_cycle(&mut self.bus);
+                // CPU, timer and OAM DMA double their rate; PPU/APU keep real time.
+                let cpu_cycles = self.bus.speed.cpu_cycles_per_base_cycle();
+                for _ in 0..cpu_cycles {
+                    if self.bus.speed.advance_switch() { continue; }
+                    let dma_stalls = !self.bus.hdma_waits_for_cpu(self.cpu.is_halted())
+                        && self.bus.step_vram_dma(&self.cpu.interrupts);
+                    if !dma_stalls {
+                        self.cpu.emulate_cycle(&mut self.bus);
+                    }
+                    self.bus.timer.emulate_cycle(&mut self.cpu.interrupts);
+                    if let Some(addr) = self.bus.ppu.oam_dma {
+                        self.bus.ppu.oam_dma_emulate_cycle(self.bus.read(&self.cpu.interrupts, addr));
+                    }
                 }
-                self.bus.timer.emulate_cycle(&mut self.cpu.interrupts);
                 self.bus.apu.emulate_cycle();
-                if let Some(addr) = self.bus.ppu.oam_dma {
-                    self.bus.ppu.oam_dma_emulate_cycle(self.bus.read(&self.cpu.interrupts, addr));
-                }
                 if self.bus.ppu.emulate_cycle(&mut self.cpu.interrupts) {
                     self.lcd.draw(self.bus.ppu.pixel_buffer());
                     current_frame = current_frame.wrapping_add(1);

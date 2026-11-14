@@ -15,6 +15,8 @@ use std::io;
 pub struct Bus {
     bootrom: Bootrom,
     key0: u8,
+    pub speed: crate::speed::Speed,
+    dma_half_cycle: bool,
     vram_dma: crate::vram_dma::VramDma,
     wram: WRam,
     hram: HRam,
@@ -30,6 +32,8 @@ impl Bus {
         Self {
             bootrom,
             key0: 0,
+            speed: Default::default(),
+            dma_half_cycle: false,
             vram_dma: Default::default(),
             wram: WRam::new(),
             hram: HRam::new(),
@@ -66,6 +70,7 @@ impl Bus {
             0xFF40..=0xFF4B | 0xFF4F | 0xFF68..=0xFF6C => self.ppu.read(addr),
             0xFF51..=0xFF54 => 0xFF,
             0xFF55 => self.vram_dma.read(),
+            0xFF4D => self.speed.read(),
             0xFF0F          => interrupts.read(addr),
             0xFFFF          => interrupts.read(addr),
             0xC000..=0xFDFF | 0xFF70 => self.wram.read(addr),
@@ -87,6 +92,7 @@ impl Bus {
             0xFF10..=0xFF26 | 0xFF30..=0xFF3F => self.apu.write(addr, val),
             0xFF40..=0xFF4B | 0xFF4F | 0xFF68..=0xFF6C  => self.ppu.write(addr, val),
             0xFF51..=0xFF55 => self.vram_dma.write(addr, val),
+            0xFF4D => self.speed.write(val),
             0xFF0F          => interrupts.write(addr, val),
             0xFFFF           => interrupts.write(addr, val),
             0xC000..=0xFDFF | 0xFF70 => self.wram.write(addr, val),
@@ -102,6 +108,12 @@ impl Bus {
         }
     }
 
+    pub fn request_speed_switch(&mut self) {
+        if self.cgb_enabled() && self.speed.request_switch() {
+            self.timer.write(0xFF04, 0);
+        }
+    }
+
     pub fn hdma_waits_for_cpu(&self, halted: bool) -> bool {
         halted && self.vram_dma.is_hblank()
     }
@@ -109,7 +121,14 @@ impl Bus {
     /// One normal-speed M-cycle: copy two bytes and report whether CPU must stall.
     pub fn step_vram_dma(&mut self, interrupts: &Interrupts) -> bool {
         if self.ppu.hblank_started() { self.vram_dma.begin_hblank(); }
-        let Some((src, dst)) = self.vram_dma.next_pair() else { return false; };
+        let Some((src, dst)) = self.vram_dma.next_pair() else {
+            self.dma_half_cycle = false;
+            return false;
+        };
+        if self.speed.is_double() {
+            self.dma_half_cycle = !self.dma_half_cycle;
+            if self.dma_half_cycle { return true; }
+        }
         for offset in 0..2 {
             let address = src.wrapping_add(offset);
             let value = match address {
@@ -204,5 +223,21 @@ mod tests {
         for i in 0..16 { assert_eq!(bus.read(&interrupts, 0x8000 + i), i as u8); }
         bus.write(&mut interrupts, 0xFF4F, 0);
         assert_eq!(bus.read(&interrupts, 0x8001), 0);
+        bus.write(&mut interrupts, 0xFF4D, 1);
+        bus.request_speed_switch();
+        for _ in 0..2050 { bus.speed.advance_switch(); }
+        assert_eq!(bus.read(&interrupts, 0xFF4D), 0xFE);
+        bus.write(&mut interrupts, 0xFF51, 0xC0);
+        bus.write(&mut interrupts, 0xFF52, 0);
+        bus.write(&mut interrupts, 0xFF53, 0);
+        bus.write(&mut interrupts, 0xFF54, 0x20);
+        bus.write(&mut interrupts, 0xFF55, 0);
+        for _ in 0..15 {
+            assert!(bus.step_vram_dma(&interrupts));
+            assert_eq!(bus.read(&interrupts, 0xFF55), 0);
+        }
+        assert!(bus.step_vram_dma(&interrupts));
+        assert_eq!(bus.read(&interrupts, 0xFF55), 0xFF);
+        for i in 0..16 { assert_eq!(bus.read(&interrupts, 0x8020 + i), i as u8); }
     }
 }
