@@ -49,6 +49,7 @@ struct Ctx {
     int: bool, 
 }
 pub struct Cpu {
+    resume_fetch: bool,
     regs: Registers,
     ctx: Ctx,
     pub interrupts: Interrupts,
@@ -57,6 +58,7 @@ pub struct Cpu {
 impl Cpu {
     pub fn new() -> Self {
         Self {
+            resume_fetch: false,
             regs: Registers::default(),
             ctx: Ctx::default(),
             interrupts: Interrupts::default(),
@@ -67,6 +69,11 @@ impl Cpu {
     }
 
     pub fn emulate_cycle(&mut self, bus: &mut Bus) {
+        if self.resume_fetch {
+            self.resume_fetch = false;
+            self.fetch(bus);
+            return;
+        }
         if self.ctx.int {
             self.call_isr(bus); // 割り込み処理
         } else {

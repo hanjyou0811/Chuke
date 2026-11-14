@@ -93,6 +93,7 @@ impl GameBoy {
                     if !dma_stalls {
                         self.cpu.emulate_cycle(&mut self.bus);
                     }
+                    if self.bus.speed.is_switching() { continue; }
                     self.bus.timer.emulate_cycle(&mut self.cpu.interrupts);
                     if let Some(addr) = self.bus.ppu.oam_dma {
                         self.bus.ppu.oam_dma_emulate_cycle(self.bus.read(&self.cpu.interrupts, addr));

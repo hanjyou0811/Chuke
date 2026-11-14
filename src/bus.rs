@@ -108,10 +108,11 @@ impl Bus {
         }
     }
 
-    pub fn request_speed_switch(&mut self) {
+    pub fn request_speed_switch(&mut self) -> bool {
         if self.cgb_enabled() && self.speed.request_switch() {
             self.timer.write(0xFF04, 0);
-        }
+            true
+        } else { false }
     }
 
     pub fn hdma_waits_for_cpu(&self, halted: bool) -> bool {
