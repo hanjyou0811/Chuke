@@ -333,7 +333,7 @@ impl Ppu {
             }
         }).take(10).collect();
         if !self.is_cgb || self.opri != 0 {
-            sprites.sort_by_key(|sprite| sprite.x);
+            sprites.sort_by_key(|sprite| sprite.x.wrapping_add(8));
         }
         let mut occupied = [false; LCD_WIDTH];
         for sprite in sprites {
@@ -567,5 +567,8 @@ mod cgb_sprite_tests {
         ppu.opri = 1;
         ppu.render_sprite(&[false; LCD_WIDTH]);
         assert_eq!(ppu.buffer[1], [0, 255, 0]);
+        ppu.oam[1] = 7;
+        ppu.render_sprite(&[false; LCD_WIDTH]);
+        assert_eq!(ppu.buffer[0], [255, 0, 0]);
     }
 }
