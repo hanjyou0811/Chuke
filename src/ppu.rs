@@ -74,7 +74,9 @@ pub struct Ppu {
 
     // for CGB
     is_cgb: bool,
-    cgb_hardware: bool, 
+    cgb_hardware: bool,
+    opri: u8,
+    bg_priority: [bool; LCD_WIDTH],
     // ff68 bg palette index
     // ff69 bg palette data
     bgpi: u8,
@@ -120,6 +122,8 @@ impl Ppu {
 
             is_cgb,
             cgb_hardware: is_cgb,
+            opri: 0,
+            bg_priority: [false; LCD_WIDTH],
             bgpi: 0,
             bgpd: Box::new([0; 0x40]),
             obpi: 0, 
@@ -157,6 +161,7 @@ impl Ppu {
             0xFF4A => self.wy,
             0xFF4B => self.wx,
             0xFF4F => 0xFE | self.vram_bank as u8,
+            0xFF6C => 0xFE | self.opri,
             0xFF68 => self.bgpi,
             0xFF69 => if self.mode != Mode::Drawing {
                 self.bgpd[(self.bgpi & 0x3F) as usize]
@@ -200,6 +205,7 @@ impl Ppu {
             0xFF4A => self.wy = val,
             0xFF4B => self.wx = val,
             0xFF4F => self.vram_bank = (val & 0x01) as usize,
+            0xFF6C => self.opri = val & 1,
             0xFF68 => self.bgpi = val & 0xBF,
             0xFF69 => if self.mode != Drawing {
                 self.bgpd[(self.bgpi & 0x3F) as usize] = val;
@@ -285,6 +291,7 @@ impl Ppu {
             let (pixel, attr) = self.background_pixel(self.lcdc & BG_TILE_MAP != 0, x, y);
             self.buffer[self.ly as usize * LCD_WIDTH + i] = self.background_color(pixel, attr);
             bg_prio[i] = pixel != 0;
+            self.bg_priority[i] = attr & 0x80 != 0;
         }
     }
 
@@ -301,6 +308,7 @@ impl Ppu {
             let (pixel, attr) = self.background_pixel(self.lcdc & WINDOW_TILE_MAP != 0, x as u8, self.wly);
             self.buffer[self.ly as usize * LCD_WIDTH + i] = self.background_color(pixel, attr);
             bg_prio[i] = pixel != 0;
+            self.bg_priority[i] = attr & 0x80 != 0;
         }
         self.wly += visible as u8;
     }
@@ -324,9 +332,10 @@ impl Ppu {
                 None
             }
         }).take(10).collect();
-        sprites.reverse();
-        sprites.sort_by(|&a, &b| b.x.cmp(&a.x));
-
+        if !self.is_cgb || self.opri != 0 {
+            sprites.sort_by_key(|sprite| sprite.x.wrapping_add(8));
+        }
+        let mut occupied = [false; LCD_WIDTH];
         for sprite in sprites {
             let palette = if sprite.flags & PALETTE > 0 { self.obp1 } else { self.obp0 };
             let mut tile_idx = sprite.tile_idx as usize;
@@ -347,11 +356,25 @@ impl Ppu {
                 } else {
                     col
                 };
-                let pixel = self.get_pixel_from_tile(0, tile_idx, row, col_flipped);
+                let bank = if self.is_cgb { ((sprite.flags >> 3) & 1) as usize } else { 0 };
+                let pixel = self.get_pixel_from_tile(bank, tile_idx, row, col_flipped);
                 let i = sprite.x.wrapping_add(col) as usize;
-                if i < LCD_WIDTH && pixel > 0 {
-                    if sprite.flags & OBJ2BG_PRIORIY == 0 || bg_prio[i] == false {
-                        self.buffer[(self.ly as usize * LCD_WIDTH) + i] = Self::monochrome_color(palette, pixel);
+                if i < LCD_WIDTH && pixel > 0 && !occupied[i] {
+                    occupied[i] = true;
+                    let bg_wins = bg_prio[i] && if self.is_cgb {
+                        self.lcdc & BG_WINDOW_ENABLE != 0
+                            && (self.bg_priority[i] || sprite.flags & OBJ2BG_PRIORIY != 0)
+                    } else {
+                        sprite.flags & OBJ2BG_PRIORIY != 0
+                    };
+                    if !bg_wins {
+                        self.buffer[self.ly as usize * LCD_WIDTH + i] = if self.is_cgb {
+                            Self::palette_color(self.obpd.as_ref(), sprite.flags & 7, pixel)
+                        } else if self.cgb_hardware {
+                            Self::palette_color(self.obpd.as_ref(), (sprite.flags >> 4) & 1, (palette >> (pixel * 2)) & 3)
+                        } else {
+                            Self::monochrome_color(palette, pixel)
+                        };
                     }
                 }
             }
