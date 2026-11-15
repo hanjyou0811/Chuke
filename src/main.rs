@@ -26,7 +26,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cartridge_data: Box<[u8]> = read_file(&path)?;
     let save_path = path.with_extension("sav");
     let cartridge = Cartridge::new(cartridge_data, save_path);
-    let bootrom = Bootrom::new(cartridge.is_cgb());
+    let bootrom = Bootrom::new();
     let mut gameboy = GameBoy::new(bootrom, cartridge);
     gameboy.run()?;
 
