@@ -8,6 +8,7 @@ pub struct VramDma {
     running: bool,
     hblank: bool,
     cancelled: bool,
+    block_active: bool,
 }
 
 impl VramDma {
@@ -23,9 +24,15 @@ impl VramDma {
             0xFF52 if !self.running => self.src = (self.src & 0xFF00) | (val as u16 & 0xF0),
             0xFF53 if !self.running => self.dst = (self.dst & 0xF0) | ((val as u16 & 0x1F) << 8),
             0xFF54 if !self.running => self.dst = (self.dst & 0x1F00) | (val as u16 & 0xF0),
+            0xFF55 if self.running && self.hblank && val & 0x80 == 0 => {
+                self.running = false;
+                self.block_active = false;
+                self.cancelled = true;
+            }
             0xFF55 if !self.running => {
                 self.remaining = (val & 0x7F) as u16 + 1;
                 self.offset = 0;
+                self.block_active = false;
                 self.hblank = val & 0x80 != 0;
                 self.running = self.dst < 0x2000;
                 self.cancelled = false;
@@ -34,16 +41,23 @@ impl VramDma {
         }
     }
 
+    pub fn begin_hblank(&mut self) {
+        if self.running && self.hblank { self.block_active = true; }
+    }
+
+    pub fn is_hblank(&self) -> bool { self.hblank }
+
     pub fn active(&self) -> bool { self.running }
 
     pub fn next_pair(&self) -> Option<(u16, u16)> {
-        (self.running && !self.hblank).then(|| (self.src.wrapping_add(self.offset), self.dst + self.offset))
+        (self.running && (!self.hblank || self.block_active)).then(|| (self.src.wrapping_add(self.offset), self.dst + self.offset))
     }
 
     pub fn advance_pair(&mut self) {
         if !self.running { return; }
         self.offset += 2;
         if self.offset == 16 {
+            self.block_active = false;
             self.offset = 0;
             self.src = self.src.wrapping_add(16);
             self.dst += 16;
