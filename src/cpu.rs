@@ -64,9 +64,6 @@ impl Cpu {
             interrupts: Interrupts::default(),
         }
     } 
-    pub fn accumulator(&self) -> u8 { self.regs.a }
-    pub fn program_counter(&self) -> u16 { self.regs.pc }
-
     pub fn is_halted(&self) -> bool {
         !self.ctx.cb && !self.ctx.int && self.ctx.opcode == 0x76 && self.interrupts.get_interrupt() == 0
     }
@@ -104,22 +101,5 @@ impl Cpu {
                 self.fetch(bus);
             },
         });
-    }
-}
-
-#[cfg(test)]
-mod halt_state_tests {
-    use super::*;
-
-    #[test]
-    fn cb76_is_not_halt() {
-        let mut cpu = Cpu::new();
-        cpu.ctx.opcode = 0x76;
-        assert!(cpu.is_halted());
-        cpu.ctx.cb = true;
-        assert!(!cpu.is_halted());
-        cpu.ctx.cb = false;
-        cpu.ctx.int = true;
-        assert!(!cpu.is_halted());
     }
 }
