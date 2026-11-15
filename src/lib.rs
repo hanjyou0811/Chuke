@@ -12,3 +12,5 @@ pub mod joypad;
 pub mod apu;
 pub mod audio;
 pub mod save;
+
+pub mod vram_dma;

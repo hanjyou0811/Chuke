@@ -381,6 +381,10 @@ impl Ppu {
         }
     }
 
+    pub fn dma_write_vram(&mut self, offset: u16, value: u8) {
+        self.vram[self.vram_bank][offset as usize] = value;
+    }
+
     pub fn oam_dma_emulate_cycle(&mut self, val: u8) {
         if let Some(addr) = self.oam_dma {
             if self.mode == Mode::Drawing || self.mode == Mode::OamScan {
