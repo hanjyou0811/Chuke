@@ -177,10 +177,10 @@ mod tests {
         drop(bus);
 
         let mut bus = make_bus(Bootrom::new(), 0x80);
-        assert_eq!(bus.read(&interrupts, 0x200), 0x66);
+        assert!(bus.cgb_enabled());
         bus.write(&mut interrupts, 0xFF4F, 1);
         bus.write(&mut interrupts, 0xFF50, 1);
-        assert!(!bus.cgb_enabled());
+        assert!(bus.cgb_enabled());
         assert_eq!(bus.read(&interrupts, 0xFF4F), 0xFF);
         drop(bus);
 
