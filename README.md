@@ -1,15 +1,15 @@
 ## GameBoy Emulator written in Rust.  
   
 Bootrom → [here.](https://github.com/take44444/Gameboy-free_bootrom.git)
-CGB Boot ROMを使う場合:
+通常は組み込みCGB Boot ROMを使用します。別のCGB Boot ROMを指定する場合:
 
 ```sh
 cargo run --release -- path/to/game.gbc --cgb-bootrom path/to/cgb_boot.bin
 ```
 
-Boot ROM未指定時は従来の組み込みDMG Boot ROMを使用します。CGB Boot ROMは
+Boot ROM未指定時は2304バイトのCGB Boot ROMを使用します。外部CGB Boot ROMは
 0x900バイト（ヘッダ領域の空きを含む形式）または0x800バイト（空きを除く形式）を
-指定できます。ROMファイルはリポジトリに含めません。
+指定できます。組み込みBoot ROMは `src/bootrom.rs` のバイト配列に直接記載しています。
 
 起動・マッピングのテスト:
 
