@@ -645,7 +645,12 @@ impl Cpu {
     }
 
     pub fn stop(&mut self, bus: &mut Bus) {
-        self.fetch(bus);
+        self.regs.pc = self.regs.pc.wrapping_add(1); // STOP's padding byte
+        if bus.request_speed_switch() {
+            self.resume_fetch = true;
+        } else {
+            self.fetch(bus);
+        }
     }
 
     pub fn swap<S: Copy>(&mut self, bus: &mut Bus, src: S) 
