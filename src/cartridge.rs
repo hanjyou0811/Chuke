@@ -71,7 +71,7 @@ impl Cartridge {
             Mbc::Mbc2 { .. } => 512,
             _ => header.sram_size(),
         };
-        let has_battery = matches!(header.cartridge_type[0], 0x03 | 0x06 | 0x09 | 0x0F | 0x10 | 0x13);
+        let has_battery = matches!(header.cartridge_type[0], 0x03 | 0x06 | 0x09 | 0x0F | 0x10 | 0x13 | 0x1B | 0x1E);
 
         println!(
             "Cartridge info {{ title: {}, type: {}, is_cgb: {}, rom_size: {} B, sram_size: {} B, }}", 
@@ -81,6 +81,7 @@ impl Cartridge {
                 Mbc::Mbc1 { .. }  => "Mbc1",
                 Mbc::Mbc2 { .. } => "Mbc2",
                 Mbc::Mbc3 { .. } => "Mbc3",
+                Mbc::Mbc5 { .. } => "Mbc5",
             },
             matches!(header.cgb_flag[0], 0x80 | 0xC0),
             rom_size,
@@ -113,7 +114,7 @@ impl Cartridge {
             0xA000..=0xBFFF => match self.mbc {
                 Mbc::NoMbc if !self.sram.is_empty() => self.sram[addr as usize & (self.sram.len() - 1)],
                 Mbc::NoMbc => 0xFF,
-                Mbc::Mbc1  { ref sram_enable, .. } => if *sram_enable && !self.sram.is_empty() {
+                Mbc::Mbc1 { ref sram_enable, .. } | Mbc::Mbc5 { ref sram_enable, .. } => if *sram_enable && !self.sram.is_empty() {
                     self.sram[self.mbc.get_addr(addr) & (self.sram.len() - 1)]
                 } else {
                     0xFF
@@ -144,7 +145,7 @@ impl Cartridge {
                 let index = match self.mbc {
                 Mbc::NoMbc if !self.sram.is_empty() => Some(addr as usize & (self.sram.len() - 1)),
                 Mbc::NoMbc => None,
-                Mbc::Mbc1  { ref sram_enable, .. } => if *sram_enable && !self.sram.is_empty() {
+                Mbc::Mbc1 { ref sram_enable, .. } | Mbc::Mbc5 { ref sram_enable, .. } => if *sram_enable && !self.sram.is_empty() {
                     Some(self.mbc.get_addr(addr) & (self.sram.len() - 1))
                 } else { None },
                 Mbc::Mbc2  { ref sram_enable, .. } => if *sram_enable {

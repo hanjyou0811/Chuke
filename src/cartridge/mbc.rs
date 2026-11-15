@@ -1,4 +1,10 @@
 pub enum Mbc {
+    Mbc5 {
+        sram_enable: bool,
+        rom_bank: usize,
+        ram_bank: usize,
+        rumble: bool,
+    },
     NoMbc,
     Mbc1 {
         sram_enable: bool,
@@ -48,11 +54,25 @@ impl Mbc {
                 rom_banks,
                 rtc_mode: false,
             },
+            0x19..=0x1E => Self::Mbc5 {
+                sram_enable: false,
+                rom_bank: 1,
+                ram_bank: 0,
+                rumble: cartridge_type >= 0x1C,
+            },
             _                   => panic!("Not Supported: {:02x}", cartridge_type),
         }
     }
     pub fn write(&mut self, addr: u16, val: u8) {
         match *self {
+            Self::Mbc5 { ref mut sram_enable, ref mut rom_bank, ref mut ram_bank, rumble } => match addr {
+                0x0000..=0x1FFF => *sram_enable = val & 0x0F == 0x0A,
+                0x2000..=0x2FFF => *rom_bank = (*rom_bank & 0x100) | val as usize,
+                0x3000..=0x3FFF => *rom_bank = (*rom_bank & 0xFF) | ((val as usize & 1) << 8),
+                0x4000..=0x5FFF => *ram_bank = val as usize & if rumble { 7 } else { 15 },
+                0x6000..=0x7FFF => (),
+                _ => unreachable!(),
+            },
             Self::NoMbc => {},
             Self::Mbc1 {
                 ref mut sram_enable,
@@ -121,6 +141,12 @@ impl Mbc {
     }
     pub fn get_addr(&self, addr: u16) -> usize {
         match self {
+            Self::Mbc5 { rom_bank, ram_bank, .. } => match addr {
+                0x0000..=0x3FFF => addr as usize,
+                0x4000..=0x7FFF => (rom_bank << 14) | (addr as usize & 0x3FFF),
+                0xA000..=0xBFFF => (ram_bank << 13) | (addr as usize & 0x1FFF),
+                _ => unreachable!(),
+            },
             Self::NoMbc => addr as usize,
             Self::Mbc1 {
                 low_bank,
