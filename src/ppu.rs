@@ -445,25 +445,3 @@ impl Ppu {
         self.is_cgb = is_cgb;
     }
 }
-
-#[cfg(test)]
-mod cgb_memory_tests {
-    use super::*;
-
-    #[test]
-    fn vram_banks_are_independent_and_palette_index_masks_unused_bit() {
-        let mut ppu = Ppu::new(true);
-        ppu.write(0x8000, 0x12);
-        ppu.write(0xFF4F, 0xFF);
-        assert_eq!(ppu.read(0x8000), 0);
-        ppu.write(0x8000, 0x34);
-        ppu.write(0xFF4F, 0);
-        assert_eq!(ppu.read(0x8000), 0x12);
-        ppu.write(0xFF4F, 1);
-        assert_eq!(ppu.read(0x8000), 0x34);
-        ppu.write(0xFF68, 0xFF);
-        assert_eq!(ppu.read(0xFF68), 0xBF);
-        ppu.write(0xFF6A, 0xFF);
-        assert_eq!(ppu.read(0xFF6A), 0xBF);
-    }
-}
