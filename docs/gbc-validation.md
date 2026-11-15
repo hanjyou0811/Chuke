@@ -1,6 +1,6 @@
 # GBC検証手順
 
-2026-11-14時点。PRは機能ごとに積み上げており、前のPRをベースにしています。
+2026-11-15時点。PRは機能ごとに積み上げており、前のPRをベースにしています。
 Boot ROMや商用ゲームのバイナリは含めません。
 
 ## 自動テスト
@@ -53,14 +53,14 @@ cargo run --release --example headless -- path/to/test.gbc \
 | BG属性・RGB出力・OBJ優先順位 | 単体テストで成功 |
 | MBC5バンクとバッテリーセーブ再読み込み | 成功 |
 | Headless CLIの画像出力・一致・不一致・上限 | 合成ROMで成功 |
-| ユーザー所有のCGB Boot ROMによる起動 | ファイルパス未確認、未実施 |
+| ユーザー所有のCGB Boot ROMによる起動 | POKEMON_YELLOW.gbでDMG互換モードの起動・Boot ROM解除・GAME FREAK画面を確認。CGB用ROMは未実施 |
 | cgb-acid2の期待画像比較 | 未実施 |
 | dmg-acid2と既存DMGゲームの回帰確認 | 未実施 |
 | 実ゲームの音声・倍速・保存 | 未実施 |
 
 ## 既知の制限と次の確認
 
-- 実CGB Boot ROMで起動を確認し、必要なレジスタや描画の不足を切り分ける。
+- 実CGB Boot ROMでのDMG互換モード起動は確認済み。CGB対応ROMの起動と描画は引き続き確認する。
 - PPUは固定長の走査線モデル。描画中のレジスタ変更や厳密なアクセス競合は未再現。
 - 速度切り替え中の特殊なPPUアクセス状態、DIV-APUのエッジは未再現。
 - 未準備STOPの省電力停止は未対応。
@@ -74,3 +74,25 @@ cargo run --release --example headless -- path/to/test.gbc \
 - [cgb-acid2](https://github.com/mattcurrie/cgb-acid2)
 - [dmg-acid2](https://github.com/mattcurrie/dmg-acid2)
 - [MagenTests](https://github.com/alloncm/MagenTests)
+
+## 実CGB Boot ROMでの検証（2026-11-15）
+
+検証コミット: `eeee0d864bac79c6ffb7a285c8ae8f23e0466dc5`。
+
+```sh
+cargo run --release --example headless -- /home/user/Chuke/roms/POKEMON_YELLOW.gb \
+  --cgb-bootrom /home/user/Chuke/bootrom/cgb_boot.bin \
+  --cycles 10000000 --output /tmp/chuke-cgb-boot.ppm
+```
+
+結果: `base_cycles=10000000 frames=549 pc=1BE8 a=40`。終了コード0。
+出力画像はGAME FREAKの画面。別の一時検証プログラムでBoot ROMの両マッピング範囲が
+カートリッジのデータに戻ったこと、およびVBK/SVBKがDMG互換モードでアクセス不可となったことを確認。
+これはCGB本体上のDMG互換モードの確認であり、CGB専用ゲームの合格結果ではない。
+音声出力・入力・セーブの動作は今回のヘッドレス検証では確認していない。
+
+| ファイル | SHA256 |
+| --- | --- |
+| cgb_boot.bin（2304バイト） | `f767b8e7e510a255f81328c89dba6e0c996b370e1bc86aebb8584a7da47a5bba` |
+| POKEMON_YELLOW.gb | `1acab20d1aa3e19c081abaac3e303c4cf3e582213937acbf25942b31c28aecfe` |
+| 出力PPM | `452d6ec795f92c90696b76f54a2f222e202b7ae3f3e5b074adce0c462ad4e860` |
