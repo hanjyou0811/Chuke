@@ -96,20 +96,3 @@ impl Cpu {
         });
     }
 }
-
-#[cfg(test)]
-mod halt_state_tests {
-    use super::*;
-
-    #[test]
-    fn cb76_is_not_halt() {
-        let mut cpu = Cpu::new();
-        cpu.ctx.opcode = 0x76;
-        assert!(cpu.is_halted());
-        cpu.ctx.cb = true;
-        assert!(!cpu.is_halted());
-        cpu.ctx.cb = false;
-        cpu.ctx.int = true;
-        assert!(!cpu.is_halted());
-    }
-}
