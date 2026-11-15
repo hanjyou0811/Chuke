@@ -199,14 +199,14 @@ impl Ppu {
             0xFF4A => self.wy = val,
             0xFF4B => self.wx = val,
             0xFF4F => self.vram_bank = (val & 0x01) as usize,
-            0xFF68 => self.bgpi = val,
+            0xFF68 => self.bgpi = val & 0xBF,
             0xFF69 => if self.mode != Drawing {
                 self.bgpd[(self.bgpi & 0x3F) as usize] = val;
                 if self.bgpi & 0x80 != 0 {
                     self.bgpi = (self.bgpi & 0x80) | ((self.bgpi.wrapping_add(1))) & 0x3F;
                 }
             },
-            0xFF6A => self.obpi = val,
+            0xFF6A => self.obpi = val & 0xBF,
             0xFF6B => if self.mode != Drawing {
                 self.obpd[(self.obpi & 0x3F) as usize] = val;
                 if self.obpi & 0x80 != 0 {
