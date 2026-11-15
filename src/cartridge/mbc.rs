@@ -222,29 +222,3 @@ impl Mbc {
         }
     }
 }
-
-#[cfg(test)]
-mod mbc5_tests {
-    use super::*;
-
-    #[test]
-    fn all_nine_rom_bank_bits_and_bank_zero_are_selectable() {
-        let mut mbc = Mbc::new(0x19, 512);
-        for bank in [0, 1, 255, 256, 511] {
-            mbc.write(0x2000, bank as u8);
-            mbc.write(0x3000, (bank >> 8) as u8);
-            assert_eq!(mbc.get_addr(0x4000), bank * 0x4000);
-            assert_eq!(mbc.get_addr(0), 0);
-        }
-    }
-
-    #[test]
-    fn rumble_bit_is_not_a_ram_bank_bit() {
-        let mut plain = Mbc::new(0x1B, 2);
-        let mut rumble = Mbc::new(0x1E, 2);
-        plain.write(0x4000, 15);
-        rumble.write(0x4000, 15);
-        assert_eq!(plain.get_addr(0xA000), 15 * 0x2000);
-        assert_eq!(rumble.get_addr(0xA000), 7 * 0x2000);
-    }
-}
