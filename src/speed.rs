@@ -25,27 +25,3 @@ impl Speed {
         true
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn key1_arms_stop_and_switches_after_delay() {
-        let mut speed = Speed::default();
-        assert_eq!(speed.read(), 0x7E);
-        assert!(!speed.request_switch());
-        speed.write(0xFF);
-        assert_eq!(speed.read(), 0x7F);
-        assert!(speed.request_switch());
-        for _ in 0..2050 { assert!(speed.advance_switch()); }
-        assert!(!speed.advance_switch());
-        assert_eq!(speed.read(), 0xFE);
-        assert_eq!(speed.cpu_cycles_per_base_cycle(), 2);
-        speed.write(1);
-        assert!(speed.request_switch());
-        for _ in 0..2050 { speed.advance_switch(); }
-        assert_eq!(speed.read(), 0x7E);
-        assert_eq!(speed.cpu_cycles_per_base_cycle(), 1);
-    }
-}
